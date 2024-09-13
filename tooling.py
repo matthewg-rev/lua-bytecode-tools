@@ -1,21 +1,22 @@
 from termcolor import colored
+import os
 import argparse
 import sys
 
 from tooling_state import ToolingState
 from lua_bytecode import LuaBytecode
+from lua_instruction import LuaInstructionType, LuaRegisterName
 from working_data import WorkingDataObjects, WorkingType
 
 tool_state = ToolingState()
 
 parser = argparse.ArgumentParser()
-parser.add_argument('file', type=argparse.FileType('r'), help='File for tooling to work with.')
+parser.add_argument('file', type=argparse.FileType('rb'), help='File for tooling to work with.')
 
 args = parser.parse_args()
 tool_state.working_file = args.file
 fileString = tool_state.working_file.read()
-fileBytes = fileString.encode('utf-8')
-tool_state.working_code = LuaBytecode.read(fileBytes)
+tool_state.working_code = LuaBytecode.read(fileString)
 
 def input_prefix():
     if tool_state.selected_data is None:
@@ -63,6 +64,19 @@ while True:
                     print(colored("error: selected data is not a function.", 'light_red'))
                     continue
 
+                if tool_state.selected_data.userDefinedTag is None:
+                    print(f"{colored('function', 'green')}[{colored(len(tool_state.selected_data.value.instructions), 'light_magenta')}] @ {colored(hex(tool_state.selected_data.address), 'cyan')}")
+                else:
+                    print(f"{colored('function', 'green')}[{colored(len(tool_state.selected_data.value.instructions), 'light_magenta')}] @ {colored(tool_state.selected_data.userDefinedTag, 'yellow')}")
+                for i, instruction in enumerate(tool_state.selected_data.value.instructions):
+                    address = f"{colored(hex(instruction.address), 'light_magenta')}"
+                    opcode = (f"{colored('[' + str(int(instruction.value.opcode)) + ']', 'light_blue')}")
+                    name = (f"{colored(instruction.value.opcode, 'light_grey')}")
+                    
+                    r1 = colored(instruction.value.get_register(0), 'light_cyan')
+                    r2 = colored(instruction.value.get_register(1), 'light_cyan')
+                    r3 = colored(instruction.value.get_register(2), 'light_cyan')
+                    print("{:<10} {:<15} {:<20} {:<3} {:<3} {:<3}".format(address, opcode, name, r1, r2, r3))
         except argparse.ArgumentError as e:
             print(colored(f"error: {e}", 'light_red'))
             continue
@@ -98,6 +112,8 @@ while True:
         except argparse.ArgumentError as e:
             print(colored(f"error: {e}", 'light_red'))
             continue
+    elif commandName == 'clear':
+        os.system('cls')
     elif commandName == 'help':
         print("list: list data of a certain type")
         print("select: select data by address or tag")

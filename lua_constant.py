@@ -1,5 +1,6 @@
 from io import BytesIO
 from enum import Enum
+import struct
 
 class LuaConstantType(Enum):
     NONE = 0
@@ -12,18 +13,19 @@ class LuaConstant:
         self.type = None
         self.value = None
 
-    def read(sizes, stream: BytesIO):
+    def read(byteorder, sizes, stream: BytesIO):
         sizeTSize, numberSize = sizes[1].value, sizes[3].value
         constant = LuaConstant()
 
-        constant.type = LuaConstantType(int.from_bytes(stream.read(1)))
+        constant.type = LuaConstantType(int.from_bytes(stream.read(1), byteorder=byteorder))
 
         if constant.type == LuaConstantType.Boolean:
-            constant.value = int.from_bytes(stream.read(1))
+            constant.value = int.from_bytes(stream.read(1), byteorder=byteorder) == 1
         elif constant.type == LuaConstantType.Number:
-            constant.value = float.from_bytes(stream.read(numberSize), byteorder='little')
+            number = stream.read(numberSize)
+            constant.value = struct.unpack('d', number)[0]
         elif constant.type == LuaConstantType.String:
-            size = int.from_bytes(stream.read(sizeTSize), byteorder='little')
-            constant.value = stream.read(size).decode('utf-8')
+            size = int.from_bytes(stream.read(sizeTSize), byteorder=byteorder)
+            constant.value = stream.read(size)
 
         return constant

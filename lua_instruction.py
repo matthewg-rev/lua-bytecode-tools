@@ -1,7 +1,7 @@
 from io import BytesIO
-from enum import Enum, auto
+from enum import IntEnum, Enum, auto
 
-class LuaOpcode(Enum):
+class LuaOpcode(IntEnum):
     MOVE = 0
     LOADK = 1
     LOADBOOL = 2
@@ -152,10 +152,11 @@ class LuaInstruction:
             LuaRegisterName.sBx: LuaRegister(LuaRegisterName.sBx)
         }
 
-    def read(sizes, stream: BytesIO):
+    def read(byteorder, sizes, stream: BytesIO):
+        instructionSize = sizes[2].value
         instruction = LuaInstruction()
 
-        raw = int.from_bytes(stream.read(4), byteorder='little')
+        raw = int.from_bytes(stream.read(instructionSize), byteorder=byteorder, signed=False)
 
         instruction.opcode = LuaOpcode(raw & 0x3F)
         instruction.type = InstructionTypeLookup[instruction.opcode]
@@ -178,10 +179,30 @@ class LuaInstruction:
             instruction.registers[LuaRegisterName.A].value = (raw >> 6) & 0xFF
             instruction.registers[LuaRegisterName.B].value = (raw >> 23) & 0x1FF
             instruction.registers[LuaRegisterName.C].value = (raw >> 14) & 0x1FF
-
-        print(instruction)
+        elif instruction.type == LuaInstructionType.sBx:
+            instruction.registers[LuaRegisterName.sBx].value = (raw >> 14) & 0x3FFFF
 
         return instruction
+    
+    def get_register(self, index: int):
+        if index == 0:
+            if self.type == LuaInstructionType.sBx:
+                return str(self.registers[LuaRegisterName.sBx].value)
+            return str(self.registers[LuaRegisterName.A].value)
+        elif index == 1:
+            if self.type == LuaInstructionType.AB:
+                return str(self.registers[LuaRegisterName.B].value)
+            elif self.type == LuaInstructionType.AC:
+                return str(self.registers[LuaRegisterName.C].value)
+            elif self.type == LuaInstructionType.ABx:
+                return str(self.registers[LuaRegisterName.Bx].value)
+            elif self.type == LuaInstructionType.ABC:
+                return str(self.registers[LuaRegisterName.B].value)
+            return ""
+        elif index == 2:
+            if self.type == LuaInstructionType.ABC:
+                return str(self.registers[LuaRegisterName.C].value)
+            return ""
 
     def __str__(self):
         if self.type == LuaInstructionType.A:

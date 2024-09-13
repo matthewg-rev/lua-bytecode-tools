@@ -23,16 +23,18 @@ class LuaBytecode:
         stream = BytesIO(bytes)
 
         bytecode.signature = WorkingData.from_data(WorkingType.HEADER, 0, stream.read(4))
-        bytecode.version = WorkingData.from_data(WorkingType.HEADER, 4, int.from_bytes(stream.read(1)))
-        bytecode.format = WorkingData.from_data(WorkingType.HEADER, 5, int.from_bytes(stream.read(1)))
-        bytecode.endianness = WorkingData.from_data(WorkingType.HEADER, 6, int.from_bytes(stream.read(1)))
-        bytecode.intSize = WorkingData.from_data(WorkingType.HEADER, 7, int.from_bytes(stream.read(1)))
-        bytecode.sizeTSize = WorkingData.from_data(WorkingType.HEADER, 8, int.from_bytes(stream.read(1)))
-        bytecode.instructionSize = WorkingData.from_data(WorkingType.HEADER, 9, int.from_bytes(stream.read(1)))
-        bytecode.numberSize = WorkingData.from_data(WorkingType.HEADER, 10, int.from_bytes(stream.read(1)))
-        bytecode.integralFlag = WorkingData.from_data(WorkingType.HEADER, 11, int.from_bytes(stream.read(1)))
+        bytecode.version = WorkingData.from_data(WorkingType.HEADER, 4, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.format = WorkingData.from_data(WorkingType.HEADER, 5, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.endianness = WorkingData.from_data(WorkingType.HEADER, 6, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.intSize = WorkingData.from_data(WorkingType.HEADER, 7, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.sizeTSize = WorkingData.from_data(WorkingType.HEADER, 8, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.instructionSize = WorkingData.from_data(WorkingType.HEADER, 9, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.numberSize = WorkingData.from_data(WorkingType.HEADER, 10, int.from_bytes(stream.read(1), byteorder='little'))
+        bytecode.integralFlag = WorkingData.from_data(WorkingType.HEADER, 11, int.from_bytes(stream.read(1), byteorder='little'))
 
-        mainChunk = LuaChunk.read([bytecode.intSize, bytecode.sizeTSize, bytecode.instructionSize, bytecode.numberSize], stream)
+        byteorder = 'big' if bytecode.endianness.value == 0 else 'little'
+
+        mainChunk = LuaChunk.read(byteorder, [bytecode.intSize, bytecode.sizeTSize, bytecode.instructionSize, bytecode.numberSize], stream)
 
         # DFS to read all the chunks
         def read_chunks(chunk):
