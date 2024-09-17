@@ -65,7 +65,9 @@ class LuaChunk:
         numInstructions = read_int(byteorder, stream, intSize)
         for i in range(numInstructions):
             startAddress = stream.tell()
-            chunk.instructions.append(WorkingData.from_data(WorkingType.INSTRUCTION, startAddress, LuaInstruction.read(byteorder, sizes, stream)))
+            instruction = LuaInstruction.read(byteorder, sizes, stream)
+            instruction.chunk = chunk
+            chunk.instructions.append(WorkingData.from_data(WorkingType.INSTRUCTION, startAddress, instruction))
 
         # read the constants
         numConstants = read_int(byteorder, stream, intSize)

@@ -1,7 +1,10 @@
 from termcolor import colored
+from enum import Enum, auto
 import os
 import argparse
 import sys
+
+from output_system import OutputSystem, OutputType
 
 from tooling_state import ToolingState
 from lua_bytecode import LuaBytecode
@@ -38,11 +41,49 @@ print("developed by @matthewg-rev")
 print("type 'help' for help.")
 print("")
 
+output_system = OutputSystem()
+
+def output_function_signature(data = None):
+    if data is None:
+        data = tool_state.selected_data
+
+    functionSignature = "{}[{}] @ {}"
+    kw1 = output_system.color_from_type("function", OutputType.KEYWORD)
+    sizeCode = output_system.color_from_type(str(len(data.value.instructions)), OutputType.NUMBER)
+    if data.userDefinedTag is None:
+        address = output_system.color_from_type(hex(data.address), OutputType.ADDRESS)
+        print(functionSignature.format(kw1, sizeCode, address))
+    else:
+        tag = output_system.color_from_type(data.userDefinedTag, OutputType.TAG)
+        print(functionSignature.format(kw1, sizeCode, tag))
+
 while True:
     command = input(input_prefix()).split(' ')
     commandName = command[0]
     if commandName == 'exit':
         sys.exit(0)
+    elif commandName == 'pseudo':
+        if tool_state.selected_data is None:
+            print(output_system.color_from_type("error: no data selected.", OutputType.ERROR))
+            continue
+        if tool_state.selected_data.type != WorkingType.FUNCTION:
+            print(output_system.color_from_type("error: selected data is not a function.", OutputType.ERROR))
+            continue
+
+        output_function_signature()
+
+        output_system.load_format("{:<10} {:<15}")
+        for i, instruction in enumerate(tool_state.selected_data.value.instructions):
+            output_system.add_data(hex(instruction.address), OutputType.ADDRESS)
+            instruction.value.pseudo(output_system)
+            output_system.end_of_line()
+        output_system.print_data()
+        output_system.clear_format()
+    elif commandName == 'addr':
+        if tool_state.selected_data is None:
+            print(output_system.color_from_type("error: no data selected.", OutputType.ERROR))
+            continue
+        print(output_system.color_from_type(hex(tool_state.selected_data.address), OutputType.ADDRESS))
     elif commandName == 'list':
         try:
             parser = ErrorCatchingArgumentParser(exit_on_error=False)
@@ -52,33 +93,61 @@ while True:
             if args.type == 'functions':
                 for data in WorkingDataObjects:
                     if data.type == WorkingType.FUNCTION:
-                        if data.userDefinedTag is None:
-                            print(f"{colored('function', 'green')}[{colored(len(data.value.instructions), 'light_magenta')}] @ {colored(hex(data.address), 'cyan')}")
-                        else:
-                            print(f"{colored('function', 'green')}[{colored(len(data.value.instructions), 'light_magenta')}] @ {colored(data.userDefinedTag, 'yellow')}")
+                        output_function_signature(data)
+            
             elif args.type == 'instructions':
                 if tool_state.selected_data is None:
-                    print(colored("error: no data selected.", 'light_red'))
+                    print(output_system.color_from_type("error: no data selected.", OutputType.ERROR))
                     continue
                 if tool_state.selected_data.type != WorkingType.FUNCTION:
-                    print(colored("error: selected data is not a function.", 'light_red'))
+                    print(output_system.color_from_type("error: selected data is not a function.", OutputType.ERROR))
                     continue
 
-                if tool_state.selected_data.userDefinedTag is None:
-                    print(f"{colored('function', 'green')}[{colored(len(tool_state.selected_data.value.instructions), 'light_magenta')}] @ {colored(hex(tool_state.selected_data.address), 'cyan')}")
-                else:
-                    print(f"{colored('function', 'green')}[{colored(len(tool_state.selected_data.value.instructions), 'light_magenta')}] @ {colored(tool_state.selected_data.userDefinedTag, 'yellow')}")
+                output_function_signature()
+                output_system.load_format("{:<10} {:<15} {:<20} {:<3} {:<3} {:<3}")
                 for i, instruction in enumerate(tool_state.selected_data.value.instructions):
-                    address = f"{colored(hex(instruction.address), 'light_magenta')}"
-                    opcode = (f"{colored('[' + str(int(instruction.value.opcode)) + ']', 'light_blue')}")
-                    name = (f"{colored(instruction.value.opcode, 'light_grey')}")
+                    output_system.add_data(hex(instruction.address), OutputType.ADDRESS)
+                    output_system.add_data('[' + str(int(instruction.value.opcode)) + ']', OutputType.NUMBER)
+                    output_system.add_data(instruction.value.opcode, OutputType.INSTRUCTION)
                     
-                    r1 = colored(instruction.value.get_register(0), 'light_cyan')
-                    r2 = colored(instruction.value.get_register(1), 'light_cyan')
-                    r3 = colored(instruction.value.get_register(2), 'light_cyan')
-                    print("{:<10} {:<15} {:<20} {:<3} {:<3} {:<3}".format(address, opcode, name, r1, r2, r3))
+                    r1_val = instruction.value.get_register(0)
+                    r2_val = instruction.value.get_register(1)
+                    r3_val = instruction.value.get_register(2)
+
+                    r1_val = str(r1_val) if r1_val is not None else ''
+                    r2_val = str(r2_val) if r2_val is not None else ''
+                    r3_val = str(r3_val) if r3_val is not None else ''
+
+                    output_system.add_data(r1_val, OutputType.REGISTER)
+                    output_system.add_data(r2_val, OutputType.REGISTER)
+                    output_system.add_data(r3_val, OutputType.REGISTER)
+                    output_system.end_of_line()
+                output_system.print_data()
+                output_system.clear_format()
+            elif args.type == 'constants':
+                if tool_state.selected_data is None:
+                    print(output_system.color_from_type("error: no data selected.", OutputType.ERROR))
+                    continue
+                if tool_state.selected_data.type != WorkingType.FUNCTION:
+                    print(output_system.color_from_type("error: selected data is not a function.", OutputType.ERROR))
+                    continue
+
+                output_function_signature()
+                
+                output_system.load_format("{:<10} {}{}{:<10} {:<20}")
+                for i, constant in enumerate(tool_state.selected_data.value.constants):
+                    output_system.add_data(hex(constant.address), OutputType.ADDRESS)
+
+                    output_system.add_data('[')
+                    output_system.add_data(str(constant.value.type), OutputType.CONSTANTTYPE)
+                    output_system.add_data(']')
+
+                    output_system.add_data(constant.value.value, OutputType.CONSTANT)
+                    output_system.end_of_line()
+                output_system.print_data()
+                output_system.clear_format()
         except argparse.ArgumentError as e:
-            print(colored(f"error: {e}", 'light_red'))
+            print(output_system.color_from_type(f"error: {e}", OutputType.ERROR))
             continue
     elif commandName == 'select':
         try:
@@ -99,7 +168,7 @@ while True:
                         tool_state.selected_data = data
                         break
         except argparse.ArgumentError as e:
-            print(colored(f"error: {e}", 'light_red'))
+            print(output_system.color_from_type(f"error: {e}", OutputType.ERROR))
             continue
     elif commandName == 'tag':
         try:
@@ -110,7 +179,7 @@ while True:
             if tool_state.selected_data is not None:
                 tool_state.selected_data.userDefinedTag = args.tag
         except argparse.ArgumentError as e:
-            print(colored(f"error: {e}", 'light_red'))
+            print(output_system.color_from_type(f"error: {e}", OutputType.ERROR))
             continue
     elif commandName == 'clear':
         os.system('cls')

@@ -8,6 +8,9 @@ class LuaConstantType(Enum):
     Number = 3
     String = 4
 
+    def __str__(self):
+        return self.name.lower()
+
 class LuaConstant:
     def __init__(self):
         self.type = None
@@ -27,5 +30,6 @@ class LuaConstant:
         elif constant.type == LuaConstantType.String:
             size = int.from_bytes(stream.read(sizeTSize), byteorder=byteorder)
             constant.value = stream.read(size)
+            constant.value = '"' + constant.value.decode('utf-8') + '"'
 
         return constant
