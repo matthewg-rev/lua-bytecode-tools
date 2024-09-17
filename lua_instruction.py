@@ -78,7 +78,9 @@ def isRK(reg):
 
 def RK(chunk, reg, output_system):
     if isRK(reg):
-        return f"{output_system.color_from_type(chunk.constants[reg].value.value, OutputType.CONSTANT)}"
+        if reg-256 < len(chunk.constants):
+            return f"{output_system.color_from_type(chunk.constants[reg-256].value.value, OutputType.CONSTANT)}"
+        return f"K({output_system.color_from_type(reg, OutputType.REGISTER)})"
     return f"R({output_system.color_from_type(reg, OutputType.REGISTER)})"
 
 def UPV(chunk, reg, output_system):
@@ -88,13 +90,13 @@ def UPV(chunk, reg, output_system):
 
 # TODO: fix multiple registers
 def multiple_registers(start, end, output_system):
+    if start == end or end < start:
+        return f"R({output_system.color_from_type(start, OutputType.REGISTER)})"
     return ", ".join([f"R({output_system.color_from_type(i, OutputType.REGISTER)})" for i in range(start, end + 1)])
 
 def multiple_registers_set(start, end, output_system):
-    if start == end:
-        return f"R({output_system.color_from_type(start, OutputType.REGISTER)})"
-    elif end < start:
-        return ""
+    if start == end or end < start:
+        return f"R({output_system.color_from_type(start, OutputType.REGISTER)})" + " = "
     return ", ".join([f"R({output_system.color_from_type(i, OutputType.REGISTER)})" for i in range(start, end + 1)]) + " = "
 
 InstructionTypeLookup = {
@@ -202,13 +204,13 @@ class LuaInstruction:
             instruction.registers[LuaRegisterName.Bx].value = (raw >> 14) & 0x3FFFF
         elif instruction.type == LuaInstructionType.AsBx:
             instruction.registers[LuaRegisterName.A].value = (raw >> 6) & 0xFF
-            instruction.registers[LuaRegisterName.sBx].value = (raw >> 14) & 0x3FFFF
+            instruction.registers[LuaRegisterName.sBx].value = ((raw >> 14) & 0x3FFFF) - 131071
         elif instruction.type == LuaInstructionType.ABC:
             instruction.registers[LuaRegisterName.A].value = (raw >> 6) & 0xFF
             instruction.registers[LuaRegisterName.B].value = (raw >> 23) & 0x1FF
             instruction.registers[LuaRegisterName.C].value = (raw >> 14) & 0x1FF
         elif instruction.type == LuaInstructionType.sBx:
-            instruction.registers[LuaRegisterName.sBx].value = (raw >> 14) & 0x3FFFF
+            instruction.registers[LuaRegisterName.sBx].value = ((raw >> 14) & 0x3FFFF) - 131071
 
         return instruction
     
@@ -240,203 +242,236 @@ class LuaInstruction:
         def kst(index):
             return f"{output_system.color_from_type(self.chunk.constants[self.get_register(index)].value.value, OutputType.CONSTANT)}"
         
-        if self.opcode == LuaOpcode.MOVE:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.LOADK:
-            reg1 = reg(0)
-            reg2 = kst(1)
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.LOADBOOL:
-            reg1 = reg(0)
-            reg2 = f"{output_system.color_from_type(self.get_register(1), OutputType.REGISTER)}"
-            nm1 = f"{output_system.color_from_type(1, OutputType.NUMBER)}"
-            pc = f"{output_system.color_from_type('PC', OutputType.INSTRUCTION)}++" if self.get_register(2) != 0 else ""
-            output_system.add_data(f"{reg1} = {reg2} == {nm1} {pc}")
-        elif self.opcode == LuaOpcode.LOADNIL:
-            registers = multiple_registers(self.get_register(0), self.get_register(1), output_system)
-            output_system.add_data(f"{registers} = {output_system.color_from_type('nil', OutputType.CONSTANT)}")
-        elif self.opcode == LuaOpcode.GETUPVAL:
-            reg1 = reg(0)
-            reg2 = UPV(self.chunk, self.get_register(1), output_system)
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.GETGLOBAL:
-            reg1 = reg(0)
-            reg2 = f"_G[{kst(1)}]"
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.GETTABLE:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2}[{reg3}]")
-        elif self.opcode == LuaOpcode.SETGLOBAL:
-            reg1 = kst(0)
-            reg2 = reg(1)
-            output_system.add_data(f"_G[{reg1}] = {reg2}")
-        elif self.opcode == LuaOpcode.SETUPVAL:
-            reg1 = UPV(self.chunk, self.get_register(1), output_system)
-            reg2 = reg(0)
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.SETTABLE:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1}[{reg2}] = {reg3}")
-        elif self.opcode == LuaOpcode.NEWTABLE:
-            reg1 = reg(0)
-            reg2 = f"newtable({reg(1)}, {reg(2)})"
-            output_system.add_data(f"{reg1} = {reg2}")
-        elif self.opcode == LuaOpcode.SELF:
-            reg1 = reg_no_get(self.get_register(0) + 1)
-            reg2 = reg(1)
-            reg3 = reg(0)
-            rk1 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2}; {reg3} = {reg2}[{rk1}]")
-        elif self.opcode == LuaOpcode.ADD:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} + {reg3}")
-        elif self.opcode == LuaOpcode.SUB:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} - {reg3}")
-        elif self.opcode == LuaOpcode.MUL:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} * {reg3}")
-        elif self.opcode == LuaOpcode.DIV:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} / {reg3}")
-        elif self.opcode == LuaOpcode.MOD:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} % {reg3}")
-        elif self.opcode == LuaOpcode.POW:
-            reg1 = reg(0)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            output_system.add_data(f"{reg1} = {reg2} ^ {reg3}")
-        elif self.opcode == LuaOpcode.UNM:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            output_system.add_data(f"{reg1} = -{reg2}")
-        elif self.opcode == LuaOpcode.NOT:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            kw1 = output_system.color_from_type("not", OutputType.KEYWORD)
-            output_system.add_data(f"{reg1} = {kw1} {reg2}")
-        elif self.opcode == LuaOpcode.LEN:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            output_system.add_data(f"{reg1} = len({reg2})")
-        elif self.opcode == LuaOpcode.CONCAT:
-            reg1 = reg(0)
-            reg2 = reg(1)
-            reg3 = reg(2)
-            output_system.add_data(f"{reg1} = {reg2} .. ... .. {reg3}")
-        elif self.opcode == LuaOpcode.JMP:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.NUMBER)
-            pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
-            output_system.add_data(f"{pc} += {reg1}")
-        elif self.opcode == LuaOpcode.EQ:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            pc = output_system.color_from_type("PC++", OutputType.INSTRUCTION)
-            output_system.add_data(f"if ({reg2} == {reg3}) != {reg1} then {pc}")
-        elif self.opcode == LuaOpcode.LT:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            pc = output_system.color_from_type("PC++", OutputType.INSTRUCTION)
-            output_system.add_data(f"if ({reg2} < {reg3}) != {reg1} then {pc}")
-        elif self.opcode == LuaOpcode.LE:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
-            reg2 = RK(self.chunk, self.get_register(1), output_system)
-            reg3 = RK(self.chunk, self.get_register(2), output_system)
-            pc = output_system.color_from_type("PC++", OutputType.INSTRUCTION)
-            output_system.add_data(f"if ({reg2} <= {reg3}) != {reg1} then {pc}")
-        elif self.opcode == LuaOpcode.TEST:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
-            reg2 = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
-            pc = output_system.color_from_type("PC++", OutputType.INSTRUCTION)
-            output_system.add_data(f"if not ({reg1} <=> {reg2}) then {pc}")
-        elif self.opcode == LuaOpcode.TESTSET:
-            reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
-            reg2 = output_system.color_from_type(self.get_register(1), OutputType.REGISTER)
-            reg3 = output_system.color_from_type(self.get_register(2), OutputType.NUMBER)
-            pc = output_system.color_from_type("PC++", OutputType.INSTRUCTION)
-            output_system.add_data(f"if not ({reg2} <=> {reg3}) then {reg1} = {reg2}; {pc}")
-        elif self.opcode == LuaOpcode.CALL:
-            set_regs = multiple_registers_set(self.get_register(0), self.get_register(0) + self.get_register(2) - 2, output_system)
-            call_reg = reg(0)
-            call_args = multiple_registers(self.get_register(0) + 1, self.get_register(0) + self.get_register(1) - 1, output_system)
-            output_system.add_data(f"{set_regs}{call_reg}({call_args})")
-        elif self.opcode == LuaOpcode.TAILCALL:
-            call_reg = reg(0)
-            call_args = multiple_registers(self.get_register(0) + 1, self.get_register(0) + self.get_register(1) - 1, output_system)
-            output_system.add_data(f"return {call_reg}({call_args})")
-        elif self.opcode == LuaOpcode.RETURN:
-            return_regs = multiple_registers(self.get_register(0), self.get_register(0) + self.get_register(1) - 2, output_system)
-            output_system.add_data(f"return {return_regs}")
-        elif self.opcode == LuaOpcode.FORLOOP:
-            reg1 = reg(0)
-            reg2 = reg_no_get(self.get_register(0) + 2)
-            reg3 = reg_no_get(self.get_register(0) + 1)
-            reg4 = reg_no_get(self.get_register(0) + 3)
-            pcInc = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
-            pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
-            output_system.add_data(f"{reg1} += {reg2}; if {reg1} <?= {reg3} then {pc} += {pcInc} {reg4} = {reg1};")
-        elif self.opcode == LuaOpcode.FORPREP:
-            reg1 = reg(0)
-            reg2 = reg_no_get(self.get_register(0) + 2)
-            pcInc = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
-            pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
-            output_system.add_data(f"{reg1} -= {reg2}; {pc} += {pcInc}")
-        elif self.opcode == LuaOpcode.TFORLOOP:
-            set_regs = multiple_registers_set(
-                self.get_register(0)+3,
-                self.get_register(0)+2+self.get_register(1)
-            )
-            call_reg = reg(0)
-            call_args = multiple_registers(self.get_register(0)+1, self.get_register(0)+2)
-            cond = reg_no_get(self.get_register(0) + 3)
-            nil = output_system.color_from_type("nil", OutputType.CONSTANT)
-            reg1 = reg_no_get(self.get_register(0) + 2)
-            reg2 = reg_no_get(self.get_register(0) + 3)
-            pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
-            output_system.add_data(f"{set_regs}{call_reg}({call_args}) if {cond} ~= {nil} then {reg1}={reg2} else {pc}++")
-        elif self.opcode == LuaOpcode.SETLIST:
-            output_system.add_data("TODO: SETLIST")
-        elif self.opcode == LuaOpcode.CLOSE:
-            output_system.add_data("TODO: CLOSE")
-        elif self.opcode == LuaOpcode.CLOSURE:
-            line = "{} = {}[{}] @ {}"
-            reg1 = reg(0)
-            kw1 = output_system.color_from_type("function", OutputType.KEYWORD)
+        match self.opcode:
+            case LuaOpcode.MOVE:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                output_system.add_data(f"{reg1} = {reg2}")
+            case LuaOpcode.LOADK:
+                reg1 = reg(0)
+                reg2 = kst(1)
+                output_system.add_data(f"{reg1} = {reg2}")
+            case LuaOpcode.LOADBOOL:
+                reg1 = reg(0)
+                reg2 = f"{output_system.color_from_type(self.get_register(1), OutputType.REGISTER)}"
+                nm1 = f"{output_system.color_from_type(1, OutputType.NUMBER)}"
+                pc = f"{output_system.color_from_type('PC', OutputType.INSTRUCTION)}++" if self.get_register(2) != 0 else ""
+                output_system.add_data(f"{reg1} = {reg2} == {nm1} {pc}")
+            case LuaOpcode.LOADNIL:
+                registers = multiple_registers(self.get_register(0), self.get_register(1), output_system)
+                output_system.add_data(f"{registers} = {output_system.color_from_type('nil', OutputType.CONSTANT)}")
+            case LuaOpcode.GETUPVAL:
+                reg1 = reg(0)
+                reg2 = UPV(self.chunk, self.get_register(1), output_system)
+                output_system.add_data(f"{reg1} = {reg2}")
+            case LuaOpcode.GETGLOBAL:
+                reg1 = reg(0)
+                reg2 = f"_G[{kst(1)}]"
+                output_system.add_data(f"{reg1} = {reg2}")
+            case LuaOpcode.GETTABLE:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2}[{reg3}]")
+            case LuaOpcode.SETGLOBAL:
+                reg1 = kst(1)
+                reg2 = reg(0)
+                output_system.add_data(f"_G[{reg1}] = {reg2}")
+            case LuaOpcode.SETUPVAL:
+                reg1 = UPV(self.chunk, self.get_register(1), output_system)
+                reg2 = reg(0)
+                output_system.add_data(f"{reg1} = {reg2}")
+            case LuaOpcode.SETTABLE:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1}[{reg2}] = {reg3}")
+            case LuaOpcode.NEWTABLE:
+                reg1 = reg(0)
+                reg2 = f"newtable({reg(1)}, {reg(2)})"
+            case LuaOpcode.SELF:
+                reg1 = reg_no_get(self.get_register(0) + 1)
+                reg2 = reg(1)
+                reg3 = reg(0)
+                rk1 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2}; {reg3} = {reg2}[{rk1}]")
+            case LuaOpcode.ADD:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} + {reg3}")
+            case LuaOpcode.SUB:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+            case LuaOpcode.SUB:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} - {reg3}")
+            case LuaOpcode.MUL:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} * {reg3}")
+            case LuaOpcode.DIV:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} / {reg3}")
+            case LuaOpcode.MOD:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} % {reg3}")
+            case LuaOpcode.POW:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+            case LuaOpcode.POW:
+                reg1 = reg(0)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                output_system.add_data(f"{reg1} = {reg2} ^ {reg3}")
+            case LuaOpcode.UNM:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                output_system.add_data(f"{reg1} = -{reg2}")
+            case LuaOpcode.NOT:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                kw1 = output_system.color_from_type("not", OutputType.KEYWORD)
+                output_system.add_data(f"{reg1} = {kw1} {reg2}")
+            case LuaOpcode.LEN:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                output_system.add_data(f"{reg1} = len({reg2})")
+            case LuaOpcode.CONCAT:
+                reg1 = reg(0)
+                reg2 = reg(1)
+                reg3 = reg(2)
+                output_system.add_data(f"{reg1} = {reg2} .. ... .. {reg3}")
+            case LuaOpcode.JMP:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.NUMBER)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"{pc} += {reg1}")
+            case LuaOpcode.EQ:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"if ({reg2} == {reg3}) != {reg1} then {pc}++")
+            case LuaOpcode.LT:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"if ({reg2} < {reg3}) != {reg1} then {pc}++")
+            case LuaOpcode.LE:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
+                reg2 = RK(self.chunk, self.get_register(1), output_system)
+                reg3 = RK(self.chunk, self.get_register(2), output_system)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"if ({reg2} <= {reg3}) != {reg1} then {pc}++")
+            case LuaOpcode.TEST:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
+                reg2 = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"if not ({reg1} <=> {reg2}) then {pc}++")
+            case LuaOpcode.TESTSET:
+                reg1 = output_system.color_from_type(self.get_register(0), OutputType.REGISTER)
+                reg2 = output_system.color_from_type(self.get_register(1), OutputType.REGISTER)
+                reg3 = output_system.color_from_type(self.get_register(2), OutputType.NUMBER)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"if not ({reg2} <=> {reg3}) then {reg1} = {reg2}; {pc}++")
+            case LuaOpcode.CALL:
+                call_reg = reg(0)
+                A = self.get_register(0)
+                B = self.get_register(1)
+                C = self.get_register(2)
 
-            closure = self.chunk.chunks[self.get_register(1)]
-            closure = [data for data in WorkingDataObjects if data.address == closure.__startAddress__][0]
+                if B == 0:
+                    # if B == 0, then function params are from R(A+1) to top of the stack.
+                    call_args = reg_no_get(A+1)
+                elif B == 1:
+                    call_args = ""
+                elif B >= 2:
+                    call_args = multiple_registers(A + 1, A + B - 1, output_system)
 
-            sizeCode = output_system.color_from_type(len(closure.value.instructions), OutputType.NUMBER)
+                if C == 0:
+                    results = reg(0) + " = "
+                elif C == 1:
+                    results = ""
+                elif C >= 2:
+                    results = multiple_registers_set(A, A + C - 2, output_system)
 
-            addressOrTag = None
-            if closure.userDefinedTag is None:
-                addressOrTag = output_system.color_from_type(hex(closure.address), OutputType.ADDRESS)
-            else:
-                addressOrTag = output_system.color_from_type(closure.userDefinedTag, OutputType.TAG)
-            output_system.add_data(line.format(reg1, kw1, sizeCode, addressOrTag))
-        elif self.opcode == LuaOpcode.VARARG:
-            output_system.add_data("TODO: VARARG")
-        else:
-            output_system.add_data(None)
+                output_system.add_data(f"{results}{call_reg}({call_args})")
+            case LuaOpcode.TAILCALL:
+                call_reg = reg(0)
+                call_args = multiple_registers(self.get_register(0) + 1, self.get_register(0) + self.get_register(1) - 1, output_system)
+                output_system.add_data(f"return {call_reg}({call_args})")
+            case LuaOpcode.RETURN:
+                A = self.get_register(0)
+                B = self.get_register(1)
+                if B == 1:
+                    return_regs = ""
+                elif B == 0:
+                    return_regs = multiple_registers(A, A + self.chunk.maxStackSize - 1, output_system)
+                elif B >= 2:
+                    return_regs = multiple_registers(self.get_register(0), self.get_register(0) + self.get_register(1) - 2, output_system)
+
+                output_system.add_data(f"return {return_regs}")
+            case LuaOpcode.FORLOOP:
+                reg1 = reg(0)
+                reg2 = reg_no_get(self.get_register(0) + 2)
+                reg3 = reg_no_get(self.get_register(0) + 1)
+                reg4 = reg_no_get(self.get_register(0) + 3)
+                pcInc = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
+                pc = output_system.color_from_type("PC", OutputType.KEYWORD)
+                output_system.add_data(f"{reg1} += {reg2}; if {reg1} <?= {reg3} then {pc} += {pcInc} {reg4} = {reg1};")
+            case LuaOpcode.FORPREP:
+                reg1 = reg(0)
+                reg2 = reg_no_get(self.get_register(0) + 2)
+                pcInc = output_system.color_from_type(self.get_register(1), OutputType.NUMBER)
+                pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
+                output_system.add_data(f"{reg1} -= {reg2}; {pc} += {pcInc}")
+            case LuaOpcode.TFORLOOP:
+                set_regs = multiple_registers_set(
+                    self.get_register(0)+3,
+                    self.get_register(0)+2+self.get_register(1)
+                )
+                call_reg = reg(0)
+                call_args = multiple_registers(self.get_register(0)+1, self.get_register(0)+2)
+                cond = reg_no_get(self.get_register(0) + 3)
+                nil = output_system.color_from_type("nil", OutputType.CONSTANT)
+                reg1 = reg_no_get(self.get_register(0) + 2)
+                reg2 = reg_no_get(self.get_register(0) + 3)
+                pc = output_system.color_from_type("PC", OutputType.INSTRUCTION)
+                output_system.add_data(f"{set_regs}{call_reg}({call_args}) if {cond} ~= {nil} then {reg1}={reg2} else {pc}++")
+            case LuaOpcode.SETLIST:
+                output_system.add_data("TODO: SETLIST")
+            case LuaOpcode.CLOSE:
+                output_system.add_data("TODO: CLOSE")
+            case LuaOpcode.CLOSURE:
+                line = "{} = {}[{}] @ {}"
+                reg1 = reg(0)
+                kw1 = output_system.color_from_type("function", OutputType.KEYWORD)
+
+                closure = self.chunk.chunks[self.get_register(1)]
+                closure = [data for data in WorkingDataObjects if data.address == closure.__startAddress__][0]
+
+                sizeCode = output_system.color_from_type(len(closure.value.instructions), OutputType.NUMBER)
+
+                addressOrTag = None
+                if closure.userDefinedTag is None:
+                    addressOrTag = output_system.color_from_type(hex(closure.address), OutputType.ADDRESS)
+                else:
+                    addressOrTag = output_system.color_from_type(closure.userDefinedTag, OutputType.TAG)
+                output_system.add_data(line.format(reg1, kw1, sizeCode, addressOrTag))
+            case LuaOpcode.VARARG:
+                output_system.add_data("TODO: VARARG")
+            case _:
+                output_system.add_data(None)
         #InstructionPseudoLookup[self.opcode](self.chunk, self, output_system)
 
     def __str__(self):
